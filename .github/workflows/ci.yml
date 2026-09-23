@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      - run: composer run tools
+      - name: Static analysis (level max)
+        run: composer run phpstan
+      - name: Unit tests
+        run: composer run test
+
+  # A real `composer create-project taw/create` from this checkout, installing
+  # taw-gutenberg from GitHub (taw-theme is left out: its npm install is slow).
+  end-to-end:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pkg
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+      - name: Install TAW Gutenberg through taw/create
+        env:
+          TAW_STARTER: gutenberg
+        run: |
+          mkdir themes && cd themes
+          composer create-project taw/create site @dev --no-interaction \
+            --repository="{\"type\":\"path\",\"url\":\"$GITHUB_WORKSPACE/pkg\",\"options\":{\"symlink\":false}}"
+      - name: Check the result
+        run: |
+          grep -q '"name": "taw/gutenberg"' themes/site/composer.json
+          test -z "$(ls -A themes | grep -v '^site$')"   # no temp folder left behind
+          php themes/site/bin/taw schema:validate
